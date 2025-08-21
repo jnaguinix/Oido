@@ -269,6 +269,13 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         }
     };
     
+    const handlePlaySelection = () => {
+        if (selectedKeys.length === 0) return;
+        const selectedNotes = NOTES.filter(note => selectedKeys.includes(note.name));
+        const frequencies = selectedNotes.map(note => note.frequency);
+        playChordSound(frequencies, 0.8);
+    };
+
     const handleKeyPress = (note: Note) => {
         playNoteSound(note.frequency);
         addPressedEffect(note.name);
@@ -404,8 +411,11 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
                 ) : (
                     <button className="btn primary" onClick={startNewRound}>Siguiente</button>
                 )}
+                {isChordMode && isGuessing && selectedKeys.length > 0 && (
+                    <button className="btn secondary" onClick={handlePlaySelection}>Tocar Selección</button>
+                )}
                  {isChordMode && isGuessing && selectedKeys.length > 1 && (
-                    <button className="btn" onClick={handleVerifyChord}>Verificar Acorde</button>
+                    <button className="btn primary" onClick={handleVerifyChord}>Verificar Acorde</button>
                 )}
             </div>
             

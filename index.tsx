@@ -64,6 +64,13 @@ const MainMenu: React.FC<{ onSelectMode: (mode: GameMode) => void }> = ({ onSele
     );
 };
 
+const OrientationPrompt: React.FC = () => (
+    <div className="orientation-prompt">
+        <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 0 24 24" width="24px" fill="currentColor"><path d="M0 0h24v24H0V0z" fill="none"/><path d="M11.25 4.07V2.5h1.5v1.57c1.31.11 2.51.63 3.54 1.46l.71-.71 1.06 1.06-.71.71c.63.88 1.11 1.88 1.43 2.94h1.62v1.5h-1.62c-.11 1.31-.63 2.51-1.46 3.54l.71.71-1.06 1.06-.71-.71c-.88.63-1.88 1.11-2.94 1.43v1.62h-1.5v-1.62c-1.31-.11-2.51-.63-3.54-1.46l-.71.71-1.06-1.06.71-.71c-.63-.88-1.11-1.88-1.43-2.94H4.5v-1.5h1.62c.11-1.31.63-2.51 1.46-3.54l-.71-.71 1.06-1.06.71.71c.88-.63 1.88-1.11 2.94-1.43zM12 16.5c2.49 0 4.5-2.01 4.5-4.5S14.49 7.5 12 7.5 7.5 9.51 7.5 12s2.01 4.5 4.5 4.5z"/></svg>
+        <span>Gira tu dispositivo o usa pantalla completa.</span>
+    </div>
+);
+
 const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode, onBackToMenu }) => {
     const audioCtxRef = useRef<AudioContext | null>(null);
     const PATTERN_LENGTH = 3;
@@ -345,16 +352,20 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         keyElement?.classList.add('pressed');
         setTimeout(() => keyElement?.classList.remove('pressed'), 200);
     }
-
-    const modeTitles: Record<GameMode, string> = {
-        'single-note-absolute': 'Nota Individual (Absoluta)',
-        'single-note-reference': 'Nota Individual (Referencia)',
-        'pattern-absolute': 'Patrón (Absoluta)',
-        'pattern-reference': 'Patrón (Referencia)',
-        'chord-absolute': 'Identificar Acorde (Absoluta)',
-        'chord-reference': 'Identificar Acorde (Referencia)',
-    };
     
+    const getModeTitleParts = (mode: GameMode) => {
+        const parts = mode.split('-');
+        let type: string;
+        if(parts.includes('single')) type = 'Nota Individual';
+        else if(parts.includes('pattern')) type = 'Patrón';
+        else type = 'Identificar Acorde';
+        
+        const difficulty = parts.includes('reference') ? '(Referencia)' : '(Absoluta)';
+        return { title: type, subtitle: difficulty };
+    };
+
+    const { title, subtitle } = getModeTitleParts(mode);
+
     const getKeyClassName = (note: Note) => {
         const classes = ['key', note.type === 'white' ? 'white-key' : 'black-key'];
         if (flashEffect?.noteName === note.name) classes.push(flashEffect.type);
@@ -370,15 +381,20 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         <>
             <div className="game-header">
                 <button className="btn secondary back-btn" onClick={onBackToMenu}>Menú</button>
-                <h1>{modeTitles[mode]}</h1>
+                <div className="game-title-container">
+                    <h1 className="game-title">{title}</h1>
+                    <span className="difficulty-subtitle">{subtitle}</span>
+                </div>
                 <button onClick={toggleFullscreen} className="btn-icon" aria-label={isFullscreen ? 'Salir de pantalla completa' : 'Entrar en pantalla completa'}>
                     {isFullscreen ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"></path></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M21 9V3h-6l2 2-4 4 2 2 4-4 2 2zM3 21h6v-6l-2 2 4-4-2-2-4 4-2-2z"></path></svg>
                     ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 2h2v3h-3v2h5v-5h-2zm-3-2V5h-2v5h5V7h-3z"></path></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3h6v6l-2-2-4 4-2-2 4-4-2-2zM3 15v6h6l-2-2 4-4-2-2-4 4-2-2z"></path></svg>
                     )}
                 </button>
             </div>
+            
+            <OrientationPrompt />
 
             <div className="score">Puntuación: {score.correct} / {score.total}</div>
 

@@ -129,40 +129,74 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         return audioCtxRef.current;
     }, []);
 
-    const playNoteSound = useCallback((frequency: number, duration: number = 0.5) => {
+    const playNoteSound = useCallback((frequency: number, duration: number = 0.5, velocity: number = 1.0) => {
         const audioCtx = getAudioContext();
         if (!audioCtx) return;
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.01);
-        gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + duration);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + duration);
+
+        // Master gain for this note, which will have the envelope applied.
+        const masterGain = audioCtx.createGain();
+        masterGain.connect(audioCtx.destination);
+
+        // --- Oscillators ---
+        // A piano-like sound can be created by combining a few waves at different frequencies (harmonics).
+        const fundamental = audioCtx.createOscillator();
+        fundamental.type = 'sine';
+        fundamental.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+
+        const harmonic1 = audioCtx.createOscillator();
+        harmonic1.type = 'triangle'; // Triangle waves provide a different harmonic structure.
+        harmonic1.frequency.setValueAtTime(frequency * 2, audioCtx.currentTime);
+
+        const harmonic2 = audioCtx.createOscillator();
+        harmonic2.type = 'sine';
+        harmonic2.frequency.setValueAtTime(frequency * 3, audioCtx.currentTime);
+
+        // --- Gains for oscillators ---
+        // We use separate gain nodes for each oscillator to control their relative volumes.
+        const fundamentalGain = audioCtx.createGain();
+        fundamentalGain.gain.value = 0.4; // Main tone
+
+        const harmonic1Gain = audioCtx.createGain();
+        harmonic1Gain.gain.value = 0.2; // Quieter harmonic
+
+        const harmonic2Gain = audioCtx.createGain();
+        harmonic2Gain.gain.value = 0.1; // Even quieter harmonic
+
+        // --- ADSR Envelope on Master Gain ---
+        // This creates a more natural sound envelope than a simple linear ramp.
+        const now = audioCtx.currentTime;
+        const peakGain = 0.7 * velocity;
+        masterGain.gain.setValueAtTime(0, now);
+        masterGain.gain.linearRampToValueAtTime(peakGain, now + 0.02); // Quick Attack
+        masterGain.gain.exponentialRampToValueAtTime(peakGain * 0.15, now + duration * 0.75); // Decay/Sustain
+        masterGain.gain.exponentialRampToValueAtTime(0.0001, now + duration); // Release
+
+        // --- Connections ---
+        // Each oscillator is connected to its own gain, and then all are routed through the master gain.
+        fundamental.connect(fundamentalGain).connect(masterGain);
+        harmonic1.connect(harmonic1Gain).connect(masterGain);
+        harmonic2.connect(harmonic2Gain).connect(masterGain);
+
+        // --- Start and Stop ---
+        // Start all oscillators at the same time and stop them after the duration.
+        fundamental.start(now);
+        harmonic1.start(now);
+        harmonic2.start(now);
+
+        fundamental.stop(now + duration);
+        harmonic1.stop(now + duration);
+        harmonic2.stop(now + duration);
     }, [getAudioContext]);
     
     const playChordSound = useCallback((frequencies: number[], duration: number = 1.0) => {
-        const audioCtx = getAudioContext();
-        if (!audioCtx) return;
-        const masterGain = audioCtx.createGain();
-        masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
-        masterGain.gain.linearRampToValueAtTime(0.3 / frequencies.length, audioCtx.currentTime + 0.01);
-        masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + duration);
-        masterGain.connect(audioCtx.destination);
-    
+        // To avoid clipping when playing multiple notes, we reduce the volume of each note.
+        // The more notes in the chord, the quieter each one is.
+        const velocity = Math.min(1.0, 2.5 / frequencies.length);
+
         frequencies.forEach(frequency => {
-            const oscillator = audioCtx.createOscillator();
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
-            oscillator.connect(masterGain);
-            oscillator.start();
-            oscillator.stop(audioCtx.currentTime + duration);
+            playNoteSound(frequency, duration, velocity);
         });
-    }, [getAudioContext]);
+    }, [playNoteSound]);
 
     const playSequenceSound = useCallback(async (sequence: { frequency: number }[]) => {
         for (const note of sequence) {

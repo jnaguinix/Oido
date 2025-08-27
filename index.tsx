@@ -73,6 +73,10 @@ const OrientationPrompt: React.FC = () => (
 
 const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode, onBackToMenu }) => {
     const audioCtxRef = useRef<AudioContext | null>(null);
+    const playerRef = useRef<any>(null);
+    const pianoInstrumentRef = useRef<any>(null);
+    const [isLoading, setIsLoading] = useState(true);
+
     const PATTERN_LENGTH = 3;
     const isPatternMode = mode.startsWith('pattern');
     const isChordMode = mode.startsWith('chord');
@@ -91,11 +95,57 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
+    const getAudioContext = useCallback(() => {
+        if (!audioCtxRef.current) {
+            try {
+                const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+                audioCtxRef.current = new AudioContext();
+            } catch (e) {
+                console.error("Web Audio API is not supported in this browser");
+                setFeedback({ message: "El audio no es compatible en este navegador.", type: 'incorrect' });
+                return null;
+            }
+        }
+        return audioCtxRef.current;
+    }, []);
+
     useEffect(() => {
+        const initAudio = () => {
+            const audioCtx = getAudioContext();
+            if (!audioCtx) {
+                setIsLoading(false);
+                return;
+            }
+
+            const Player = (window as any).WebAudioFontPlayer;
+            if (!Player) {
+                console.error("WebAudioFontPlayer not found.");
+                setIsLoading(false);
+                return;
+            }
+
+            const player = new Player();
+            playerRef.current = player;
+            const instrumentName = '_tone_0000_FluidR3_GM_sf2_file';
+
+            const instrument = (window as any)[instrumentName];
+            if (!instrument) {
+                console.error(`Instrument ${instrumentName} not found. Make sure the script is loaded.`);
+                setIsLoading(false);
+                return;
+            }
+
+            player.loader.decodeAfterLoading(audioCtx, instrumentName);
+            pianoInstrumentRef.current = instrument;
+            setIsLoading(false);
+        };
+
+        initAudio();
+
         const onFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
         document.addEventListener('fullscreenchange', onFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-    }, []);
+    }, [getAudioContext]);
 
     const toggleFullscreen = async () => {
         const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -116,77 +166,26 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         }
     };
 
-    const getAudioContext = useCallback(() => {
-        if (!audioCtxRef.current) {
-            try {
-                audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-            } catch (e) {
-                console.error("Web Audio API is not supported in this browser");
-                setFeedback({ message: "El audio no es compatible en este navegador.", type: 'incorrect' });
-                return null;
-            }
-        }
-        return audioCtxRef.current;
-    }, []);
+    const frequencyToMidi = (frequency: number) => Math.round(12 * Math.log2(frequency / 440) + 69);
 
     const playNoteSound = useCallback((frequency: number, duration: number = 0.5, velocity: number = 1.0) => {
+        if (isLoading || !playerRef.current || !pianoInstrumentRef.current) {
+            return;
+        }
         const audioCtx = getAudioContext();
         if (!audioCtx) return;
 
-        // Master gain for this note, which will have the envelope applied.
-        const masterGain = audioCtx.createGain();
-        masterGain.connect(audioCtx.destination);
-
-        // --- Oscillators ---
-        // A piano-like sound can be created by combining a few waves at different frequencies (harmonics).
-        const fundamental = audioCtx.createOscillator();
-        fundamental.type = 'sine';
-        fundamental.frequency.setValueAtTime(frequency, audioCtx.currentTime);
-
-        const harmonic1 = audioCtx.createOscillator();
-        harmonic1.type = 'triangle'; // Triangle waves provide a different harmonic structure.
-        harmonic1.frequency.setValueAtTime(frequency * 2, audioCtx.currentTime);
-
-        const harmonic2 = audioCtx.createOscillator();
-        harmonic2.type = 'sine';
-        harmonic2.frequency.setValueAtTime(frequency * 3, audioCtx.currentTime);
-
-        // --- Gains for oscillators ---
-        // We use separate gain nodes for each oscillator to control their relative volumes.
-        const fundamentalGain = audioCtx.createGain();
-        fundamentalGain.gain.value = 0.4; // Main tone
-
-        const harmonic1Gain = audioCtx.createGain();
-        harmonic1Gain.gain.value = 0.2; // Quieter harmonic
-
-        const harmonic2Gain = audioCtx.createGain();
-        harmonic2Gain.gain.value = 0.1; // Even quieter harmonic
-
-        // --- ADSR Envelope on Master Gain ---
-        // This creates a more natural sound envelope than a simple linear ramp.
-        const now = audioCtx.currentTime;
-        const peakGain = 0.7 * velocity;
-        masterGain.gain.setValueAtTime(0, now);
-        masterGain.gain.linearRampToValueAtTime(peakGain, now + 0.02); // Quick Attack
-        masterGain.gain.exponentialRampToValueAtTime(peakGain * 0.15, now + duration * 0.75); // Decay/Sustain
-        masterGain.gain.exponentialRampToValueAtTime(0.0001, now + duration); // Release
-
-        // --- Connections ---
-        // Each oscillator is connected to its own gain, and then all are routed through the master gain.
-        fundamental.connect(fundamentalGain).connect(masterGain);
-        harmonic1.connect(harmonic1Gain).connect(masterGain);
-        harmonic2.connect(harmonic2Gain).connect(masterGain);
-
-        // --- Start and Stop ---
-        // Start all oscillators at the same time and stop them after the duration.
-        fundamental.start(now);
-        harmonic1.start(now);
-        harmonic2.start(now);
-
-        fundamental.stop(now + duration);
-        harmonic1.stop(now + duration);
-        harmonic2.stop(now + duration);
-    }, [getAudioContext]);
+        const pitch = frequencyToMidi(frequency);
+        playerRef.current.queueWaveTable(
+            audioCtx,
+            audioCtx.destination,
+            pianoInstrumentRef.current,
+            0, // play now
+            pitch,
+            duration,
+            velocity
+        );
+    }, [getAudioContext, isLoading]);
     
     const playChordSound = useCallback((frequencies: number[], duration: number = 1.0) => {
         // To avoid clipping when playing multiple notes, we reduce the volume of each note.
@@ -214,6 +213,11 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
         setSelectedKeys([]);
 
         const playSounds = async () => {
+            if (isLoading) {
+                // Sounds not loaded yet, wait a bit and try again
+                setTimeout(playSounds, 100);
+                return;
+            }
             if (isChordMode) {
                 const rootNotes = NOTES.slice(0, 13); // C4 to C5 as possible roots
                 const randomRoot = rootNotes[Math.floor(Math.random() * rootNotes.length)];
@@ -279,7 +283,7 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
             }
         };
         setTimeout(playSounds, 500);
-    }, [isPatternMode, isChordMode, playNoteSound, playSequenceSound, playChordSound, mode, PATTERN_LENGTH]);
+    }, [isPatternMode, isChordMode, playNoteSound, playSequenceSound, playChordSound, mode, PATTERN_LENGTH, isLoading]);
 
     useEffect(() => { startNewRound(); }, [startNewRound]);
 
@@ -406,6 +410,14 @@ const GameView: React.FC<{ mode: GameMode; onBackToMenu: () => void }> = ({ mode
     };
 
     const { title, subtitle } = getModeTitleParts(mode);
+
+    if (isLoading) {
+        return (
+            <div className="loading-container" style={{ padding: '2rem', textAlign: 'center' }}>
+                <h2>Cargando sonidos del piano...</h2>
+            </div>
+        );
+    }
 
     const getKeyClassName = (note: Note) => {
         const classes = ['key', note.type === 'white' ? 'white-key' : 'black-key'];
